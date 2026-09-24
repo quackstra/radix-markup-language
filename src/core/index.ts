@@ -5,3 +5,4 @@ export * from './registry.js';
 export * from './config.js';
 export * from './sbor.js';
 export * from './gateway.js';
+export * from './schema.js';
