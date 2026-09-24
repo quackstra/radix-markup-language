@@ -53,6 +53,15 @@ body {
 .qd-content blockquote { border-left: 3px solid var(--line); margin: 0; padding-left: 14px; color: var(--muted); }
 .qd-image-link { display: inline-block; padding: 2px 8px; border: 1px dashed var(--line); border-radius: 8px; }
 
+/* Directory */
+.qd-dir { margin-top: 32px; }
+.qd-dir h2 { font-size: 1.1rem; margin: 0 0 12px; }
+.qd-dir-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.qd-dir-item { display: block; background: var(--card); border: 1px solid var(--line); border-left: 4px solid var(--acc);
+  border-radius: 10px; padding: 12px 14px; text-decoration: none; color: var(--fg); min-height: 44px; }
+.qd-dir-title { font-weight: 600; }
+.qd-dir-acct { color: var(--muted); font-family: ui-monospace, monospace; font-size: 12px; margin-top: 2px; overflow-wrap: anywhere; }
+
 /* History */
 .qd-history { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
 .qd-op { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; }

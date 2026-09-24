@@ -1,0 +1,11 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 }).then((c) => c.newPage());
+const errors = [];
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await page.goto('http://localhost:4173/', { waitUntil: 'load' });
+await page.waitForSelector('.qd-dir-list', { timeout: 45000 });
+const count = await page.locator('.qd-dir-item').count();
+await page.screenshot({ path: new URL('./screenshots/10-landing-directory.png', import.meta.url).pathname, fullPage: true });
+console.log('directory entries shown:', count, '| console errors:', errors.length ? errors : 'none');
+await browser.close();

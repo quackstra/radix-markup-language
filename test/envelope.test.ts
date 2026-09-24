@@ -19,8 +19,7 @@ describe('DELETE / REDIRECT round-trip', () => {
   it('delete', () => {
     const d = decode(encodeDelete('/about', 'gone'));
     expect(d.op).toBe(Op.DELETE);
-    expect(d.path).toBe('/about');
-    if (d.op === Op.DELETE) expect(d.note).toBe('gone');
+    if (d.op === Op.DELETE) { expect(d.path).toBe('/about'); expect(d.note).toBe('gone'); }
   });
   it('redirect normalizes both paths', () => {
     const r = decode(encodeRedirect('old', 'new/', 'moved'));

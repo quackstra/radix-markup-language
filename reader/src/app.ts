@@ -1,7 +1,8 @@
-import { fetchSiteRecords } from './gateway.js';
+import { fetchSiteRecords, fetchRegistryRecords } from './gateway.js';
 import { browserCrypto } from './browser-env.js';
 import { makeRenderer } from './md.js';
 import { resolveSite, render, type ResolvedPage, type PublishOp } from '../../src/core/resolver.js';
+import { resolveRegistry, type RegistryEntry } from '../../src/core/registry.js';
 import { normalizePath } from '../../src/core/envelope.js';
 
 type Mode = 'clean' | 'deletes' | 'redirects' | 'history';
@@ -34,14 +35,39 @@ function el(tag: string, attrs: Record<string, string> = {}, ...kids: (Node | st
   return e;
 }
 
-function landing() {
+async function landing() {
   openSnapshot = null;
   const form = el('form', { class: 'qd-landing' });
   const input = el('input', { type: 'text', placeholder: 'account_tdx_2_… (site address)', autocapitalize: 'off', autocorrect: 'off', spellcheck: 'false' }) as HTMLInputElement;
   const btn = el('button', { type: 'submit' }, 'Open site');
   form.append(el('h1', {}, '🦆 Quackdown'), el('p', { class: 'muted' }, 'A website that lives on the Radix ledger.'), input, btn);
   form.addEventListener('submit', (e) => { e.preventDefault(); const v = input.value.trim(); if (v) location.hash = `#/${encodeURIComponent(v)}/`; });
-  app.replaceChildren(form);
+
+  const dir = el('section', { class: 'qd-dir' }, el('h2', {}, 'Directory'), el('p', { class: 'muted qd-dir-loading' }, 'Loading registered sites…'));
+  app.replaceChildren(form, dir);
+
+  try {
+    const entries = resolveRegistry(await fetchRegistryRecords());
+    renderDirectory(dir, entries);
+  } catch {
+    dir.querySelector('.qd-dir-loading')!.textContent = 'Could not load the directory.';
+  }
+}
+
+function renderDirectory(dir: HTMLElement, entries: RegistryEntry[]) {
+  dir.replaceChildren(el('h2', {}, `Directory (${entries.length})`));
+  if (!entries.length) {
+    dir.append(el('p', { class: 'muted' }, 'No sites registered yet. Be the first: qd register --title "My Site".'));
+    return;
+  }
+  const list = el('ul', { class: 'qd-dir-list' });
+  for (const e of entries) {
+    const a = el('a', { href: `#/${encodeURIComponent(e.account)}/`, class: 'qd-dir-item' });
+    a.append(el('div', { class: 'qd-dir-title' }, e.title || '(untitled site)'));
+    a.append(el('div', { class: 'qd-dir-acct' }, e.account.slice(0, 24) + '…' + e.account.slice(-6)));
+    list.append(el('li', {}, a));
+  }
+  dir.append(list);
 }
 
 function chrome(site: string, path: string): { header: HTMLElement; main: HTMLElement } {

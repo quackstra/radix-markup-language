@@ -64,6 +64,13 @@ export function encodeRedirect(from: string, to: string, note = ''): Uint8Array 
   return sized(w.done());
 }
 
+export function encodeRegister(title = ''): Uint8Array {
+  const w = new Writer();
+  writeHeader(w, Op.REGISTER);
+  w.str(clampTitle(title));
+  return sized(w.done());
+}
+
 export interface PublishMeta {
   path: string;
   note?: string;
@@ -131,6 +138,10 @@ export function decode(bytes: Uint8Array): Envelope {
       const target = normalizePath(r.str());
       return { op: Op.REDIRECT, path, note: note || undefined, target };
     }
+    case Op.REGISTER: {
+      const title = r.str();
+      return { op: Op.REGISTER, title: title || undefined };
+    }
     case Op.PUBLISH: {
       const snapshotId = r.take(16).slice();
       const chunkIndex = r.u16();
@@ -161,6 +172,11 @@ export function decode(bytes: Uint8Array): Envelope {
 function clampNote(note: string): string {
   if (te.encode(note).length > MAX_NOTE_BYTES) throw new Error('note exceeds 280 bytes');
   return note;
+}
+
+function clampTitle(title: string): string {
+  if (te.encode(title).length > 100) throw new Error('title exceeds 100 bytes');
+  return title;
 }
 
 function sized(b: Uint8Array): Uint8Array {

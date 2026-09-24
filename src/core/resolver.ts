@@ -74,7 +74,7 @@ export async function resolveSite(records: SiteRecord[], deps: CryptoDeps): Prom
       singleOps.push({ kind: 'delete', path: env.path, stateVersion: rec.stateVersion, txId: rec.txId, note: env.note });
     } else if (env.op === Op.REDIRECT) {
       singleOps.push({ kind: 'redirect', path: env.path, stateVersion: rec.stateVersion, txId: rec.txId, note: env.note, target: env.target });
-    } else {
+    } else if (env.op === Op.PUBLISH) {
       const key = hex(env.snapshotId);
       let acc = snapshots.get(key);
       if (!acc) {

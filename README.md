@@ -40,6 +40,24 @@ test/                              vitest suite (T3 + codec)
 scripts/acceptance.ts              live Stokenet end-to-end acceptance
 ```
 
+## Directory (self-listing, on-ledger)
+
+The reader's home page shows a directory of registered sites. It's permissionless
+and backend-free: to list your site you send one transaction.
+
+```
+qd register --title "My Site"   # adds YOUR account to the public directory
+qd dir                          # print the directory
+```
+
+How it stays trustworthy: `register` makes an owner call (`lock_fee`) on **your**
+account — the identity anchor — and deposits dust into a well-known **hub** account
+so the registration is discoverable. The reader builds the list from the hub's
+transaction stream and takes each registrant **from the ledger's owner call**, never
+from the message — so you can only ever list your own account (same defense as the
+forged-page test). Latest `register` per account wins. Hub address lives in
+`src/core/config.ts`.
+
 ## Reader
 
 ```

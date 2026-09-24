@@ -3,7 +3,7 @@
 export const MAGIC = Uint8Array.from([0x51, 0x44]); // "QD"
 export const VERSION = 0x00;
 
-export const Op = { PUBLISH: 0x01, DELETE: 0x02, REDIRECT: 0x03 } as const;
+export const Op = { PUBLISH: 0x01, DELETE: 0x02, REDIRECT: 0x03, REGISTER: 0x04 } as const;
 export type OpCode = (typeof Op)[keyof typeof Op];
 
 export const Compression = { NONE: 0x00, ZSTD: 0x01 } as const;
@@ -26,7 +26,16 @@ export const MIME_TYPE = 'application/x-quackdown';
 export type Envelope =
   | PublishChunk
   | DeleteEnvelope
-  | RedirectEnvelope;
+  | RedirectEnvelope
+  | RegisterEnvelope;
+
+// Directory registration. The registrant account is NOT carried here — it is
+// taken from the ledger's owner call in the same transaction (unspoofable). The
+// title is a cosmetic display name for the registrant's own site link.
+export interface RegisterEnvelope {
+  op: typeof Op.REGISTER;
+  title?: string;
+}
 
 export interface PublishChunk {
   op: typeof Op.PUBLISH;

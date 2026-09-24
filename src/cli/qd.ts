@@ -8,7 +8,9 @@ import { encodePublishChunks, encodeDelete, encodeRedirect, normalizePath } from
 import { Compression } from '../core/types.js';
 import { resolveSite } from '../core/resolver.js';
 import { zstdCompress, sha256Sync, nodeCrypto } from '../node/env.js';
-import { loadSiteKey, siteAddress, submitMessage, fetchSiteRecords, estimateChunkFee } from './gateway.js';
+import { loadSiteKey, siteAddress, submitMessage, submitRegister, fetchSiteRecords, fetchRegistryRecords, estimateChunkFee } from './gateway.js';
+import { encodeRegister } from '../core/envelope.js';
+import { resolveRegistry } from '../core/registry.js';
 
 function fail(msg: string): never { console.error('error:', msg); process.exit(1); }
 
@@ -20,13 +22,17 @@ async function main() {
     case 'redirect': return redirect(rest);
     case 'ls': return ls();
     case 'history': return history(rest);
+    case 'register': return register(rest);
+    case 'dir': return dir();
     default:
       console.log(`qd <command>
   publish <file.md> --path /about [--note "…"] [--dry-run]
   delete --path /about [--note "…"]
   redirect --from /old --to /new [--note "…"]
   ls
-  history --path /about`);
+  history --path /about
+  register [--title "My Site"]   add your account to the public directory
+  dir                            list the public directory`);
       process.exit(cmd ? 1 : 0);
   }
 }
@@ -127,6 +133,21 @@ async function history(argv: string[]) {
       console.log(`  v${op.stateVersion}  redirect -> ${op.target}${op.note ? '  — ' + op.note : ''}`);
     }
   }
+}
+
+async function register(argv: string[]) {
+  const { values } = parseArgs({ args: argv, options: { title: { type: 'string' } } });
+  const priv = loadSiteKey();
+  const account = await siteAddress(priv);
+  const id = await submitRegister(priv, account, encodeRegister(values.title ?? ''));
+  console.log(`registered ${account}${values.title ? ` as "${values.title}"` : ''} -> ${id}`);
+}
+
+async function dir() {
+  const entries = resolveRegistry(await fetchRegistryRecords());
+  if (!entries.length) { console.log('(directory empty)'); return; }
+  console.log(`${entries.length} registered site(s):`);
+  for (const e of entries) console.log(`  ${e.title ? e.title + '  ' : ''}${e.account}`);
 }
 
 main().catch((e) => fail(e.message));
