@@ -1,8 +1,9 @@
-import { fetchSiteRecords, fetchRegistryRecords } from './gateway.js';
+import { fetchSiteRecords, fetchRegistryRecords, fetchRawPayload } from './gateway.js';
 import { browserCrypto } from './browser-env.js';
 import { makeRenderer } from './md.js';
-import { resolveSite, render, type ResolvedPage, type PublishOp } from '../../src/core/resolver.js';
+import { resolveSite, render, loadBody, type ResolvedPage, type PublishOp } from '../../src/core/resolver.js';
 import { resolveRegistry, type RegistryEntry } from '../../src/core/registry.js';
+import { extractBlobs } from '../../src/core/sbor.js';
 import { normalizePath } from '../../src/core/envelope.js';
 
 type Mode = 'clean' | 'deletes' | 'redirects' | 'history';
@@ -124,6 +125,21 @@ function renderContent(main: HTMLElement, site: string, markdown: string) {
   main.append(article);
 }
 
+// Get a publish op's markdown: v0 inline, or v1 by fetching raw_hex, extracting
+// blobs, and verifying against content_hash. Cached by content_hash.
+const bodyCache = new Map<string, string>();
+async function materialize(op: PublishOp): Promise<string | null> {
+  if (op.content != null) return op.content; // v0
+  if (!op.body) return null;
+  if (bodyCache.has(op.contentHash)) return bodyCache.get(op.contentHash)!;
+  try {
+    const blobs = extractBlobs(await fetchRawPayload(op.body.txId));
+    const content = await loadBody(op.body, blobs, browserCrypto);
+    if (content != null) bodyCache.set(op.contentHash, content);
+    return content;
+  } catch { return null; }
+}
+
 async function view(site: string, path: string) {
   app.replaceChildren(el('div', { class: 'qd-loading' }, 'Loading from the ledger…'));
   let pages = cache.get(site);
@@ -145,52 +161,60 @@ async function view(site: string, path: string) {
   if (nav) main.append(nav);
 
   if (mode === 'history') {
-    renderHistory(main, site, path, page);
+    await renderHistory(main, site, path, page);
   } else if (mode === 'redirects') {
-    // do not follow redirects
     const state = page?.state;
     if (state?.status === 'redirected') {
       main.append(notice('redirect', `Moved to ${state.target}`, state.note));
       const lp = lastPublished(page!);
-      if (lp?.content) renderContent(main, site, lp.content);
-    } else renderResolved(main, site, path, pages);
+      if (lp) { const c = await materialize(lp); if (c) renderContent(main, site, c); }
+    } else await renderResolved(main, site, path, pages);
   } else if (mode === 'deletes') {
     const state = page?.state;
     if (state?.status === 'deleted') {
       main.append(notice('deleted', 'This page was deleted', `at ledger state version ${state.stateVersion}${state.note ? ` — ${state.note}` : ''}`));
-    } else renderResolved(main, site, path, pages);
+    } else await renderResolved(main, site, path, pages);
   } else {
-    renderResolved(main, site, path, pages);
+    await renderResolved(main, site, path, pages);
   }
 
   app.replaceChildren(header, main);
 }
 
-function renderResolved(main: HTMLElement, site: string, path: string, pages: Map<string, ResolvedPage>) {
+async function renderResolved(main: HTMLElement, site: string, path: string, pages: Map<string, ResolvedPage>) {
   const r = render(pages, path);
   switch (r.kind) {
-    case 'page': return renderContent(main, site, r.content);
+    case 'page': {
+      const content = await materialize(r.op);
+      if (content == null) main.append(notice('error', 'Content unavailable', 'The page body is missing or failed its integrity check.'));
+      else renderContent(main, site, content);
+      return;
+    }
     case 'deleted': return void main.append(notice('deleted', 'This page was deleted', r.note));
     case 'not-found': return void main.append(notice('notfound', 'Not found', r.via ? `Redirect from ${r.via} points to a page that never existed.` : `No page at ${r.path}.`));
     case 'redirect-loop': return void main.append(notice('error', 'Redirect loop', r.chain.join(' → ')));
   }
 }
 
-function renderHistory(main: HTMLElement, site: string, path: string, page?: ResolvedPage) {
+function snapKey(op: PublishOp): string { return op.snapshotId ?? `${op.txId}#${op.opIndex}`; }
+
+async function renderHistory(main: HTMLElement, site: string, path: string, page?: ResolvedPage) {
   if (!page || !page.history.length) { main.append(notice('notfound', 'No history', `Nothing has been published at ${path}.`)); return; }
   const list = el('ol', { class: 'qd-history' });
   for (const op of page.history) {
     const row = el('li', { class: 'qd-op qd-op-' + op.kind });
     if (op.kind === 'publish') {
       const status = op.resolvable ? 'ok' : `excluded — ${op.reason}`;
-      row.append(el('div', { class: 'qd-op-h' }, `v${op.stateVersion} · publish · ${op.presentChunks}/${op.chunkCount} chunks · ${status}`));
+      const carrier = op.body ? `blob×${op.body.blobCount}` : `${op.presentChunks}/${op.chunkCount} chunks`;
+      row.append(el('div', { class: 'qd-op-h' }, `v${op.stateVersion} · publish · ${carrier} · ${status}`));
       if (op.note) row.append(el('div', { class: 'qd-op-note' }, op.note));
-      if (op.resolvable && op.content != null) {
-        const open = openSnapshot === op.snapshotId;
+      if (op.resolvable) {
+        const key = snapKey(op);
+        const open = openSnapshot === key;
         const btn = el('button', { class: 'qd-snap-btn' }, open ? 'Hide snapshot' : 'Open snapshot');
-        btn.addEventListener('click', () => { openSnapshot = open ? null : op.snapshotId; route(); });
+        btn.addEventListener('click', () => { openSnapshot = open ? null : key; route(); });
         row.append(btn);
-        if (open) { const c = el('div', {}); renderContent(c, site, op.content); row.append(c); }
+        if (open) { const content = await materialize(op); if (content != null) { const c = el('div', {}); renderContent(c, site, content); row.append(c); } }
       }
     } else if (op.kind === 'delete') {
       row.append(el('div', { class: 'qd-op-h' }, `v${op.stateVersion} · delete`));

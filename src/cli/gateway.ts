@@ -48,7 +48,7 @@ async function currentEpoch(): Promise<number> {
 
 // Build, notarize and submit a transaction (single signer = notary), optionally
 // carrying a Quackdown message, then wait for commit. Returns the tx id.
-async function send(priv: PrivateKey, manifest: string, envelope?: Uint8Array): Promise<string> {
+async function send(priv: PrivateKey, manifest: string, envelope?: Uint8Array, blobs: Uint8Array[] = []): Promise<string> {
   const epoch = await currentEpoch();
   const header = {
     networkId: NETWORK_ID,
@@ -61,7 +61,7 @@ async function send(priv: PrivateKey, manifest: string, envelope?: Uint8Array): 
   };
   let step = (await TransactionBuilder.new()).header(header);
   if (envelope) step = step.message({ kind: 'PlainText', value: { mimeType: MIME_TYPE, message: { kind: 'Bytes', value: envelope } } });
-  const notarized = await step.manifest({ instructions: { kind: 'String', value: manifest }, blobs: [] }).notarize(priv);
+  const notarized = await step.manifest({ instructions: { kind: 'String', value: manifest }, blobs }).notarize(priv);
   const compiled = await RadixEngineToolkit.NotarizedTransaction.compile(notarized);
   const idHash = await RadixEngineToolkit.NotarizedTransaction.intentHash(notarized);
   await gw('/transaction/submit', { notarized_transaction_hex: hex(compiled) });
@@ -70,8 +70,13 @@ async function send(priv: PrivateKey, manifest: string, envelope?: Uint8Array): 
 }
 
 // Submit one message as a transaction with an owner-authorized lock_fee on the site account.
-export async function submitMessage(priv: PrivateKey, account: string, envelope: Uint8Array): Promise<string> {
-  return send(priv, `CALL_METHOD Address("${account}") "lock_fee" Decimal("5");`, envelope);
+export async function submitMessage(priv: PrivateKey, account: string, envelope: Uint8Array, lockFee = '5'): Promise<string> {
+  return send(priv, `CALL_METHOD Address("${account}") "lock_fee" Decimal("${lockFee}");`, envelope);
+}
+
+// v1 blob carrier: one transaction carrying the head message and the body blobs.
+export async function submitBlobTx(priv: PrivateKey, account: string, head: Uint8Array, blobs: Uint8Array[], lockFee = '50'): Promise<string> {
+  return send(priv, `CALL_METHOD Address("${account}") "lock_fee" Decimal("${lockFee}");`, head, blobs);
 }
 
 // Register in the directory: owner-call (lock_fee) on your account proves identity,

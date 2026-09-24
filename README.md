@@ -70,11 +70,24 @@ Deletes, Redirects (don't follow), Full history (open any past snapshot). The re
 talks only to the Stokenet Gateway (enforced by CSP `connect-src`) and never trusts
 anything inside an envelope — site membership is the owner-call filter + `CommittedSuccess`.
 
+## Carriers: v1 blobs (default) and v0 messages
+
+- **v1 (default): body in transaction blobs, head in the message.** One page = **one
+  transaction, one signature**, ~half the fee of v0. Verified on Stokenet (see
+  `recon/REPORT-v1.md`). The reader extracts blobs from `raw_hex` with a tiny SBOR
+  walker (`src/core/sbor.ts`) — no RET wasm — and verifies the body against `content_hash`.
+- **v0: chunked messages.** Still fully supported; `--carrier msg` opts back in. All v0
+  content keeps rendering forever.
+- **Batch `COMMIT`:** many ops (publish/delete/redirect) in one transaction — the basis
+  for the action cart. Opcodes: PUBLISH `0x01`, DELETE `0x02`, REDIRECT `0x03`,
+  REGISTER `0x04`, COMMIT `0x05`, UPLOAD `0x06` (two-phase >1 MiB, reserved).
+
 ## Use the CLI
 
 ```
 export QUACKDOWN_SITE_KEY=<32-byte ed25519 hex>   # never commit or log this
-npm run qd -- publish page.md --path /about --note "first" [--dry-run]
+npm run qd -- publish page.md --path /about [--carrier blob|msg] [--dry-run]
+npm run qd -- commit cart.json [--dry-run]        # batch many ops in ONE tx
 npm run qd -- delete   --path /temp
 npm run qd -- redirect --from /old --to /about
 npm run qd -- ls

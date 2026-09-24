@@ -1,10 +1,20 @@
 // Quackdown shared types. Isomorphic — no Node or browser APIs here.
 
 export const MAGIC = Uint8Array.from([0x51, 0x44]); // "QD"
-export const VERSION = 0x00;
+export const VERSION = 0x00; // v0: bodies in chunked messages
+export const VERSION_V1 = 0x01; // v1: head in message, body in transaction blobs
 
-export const Op = { PUBLISH: 0x01, DELETE: 0x02, REDIRECT: 0x03, REGISTER: 0x04 } as const;
+export const Op = {
+  PUBLISH: 0x01, DELETE: 0x02, REDIRECT: 0x03, REGISTER: 0x04,
+  COMMIT: 0x05, // v1 batch head: several ops in one transaction
+  UPLOAD: 0x06, // v1 two-phase: body blobs staged, not yet live (reserved for >1 MiB)
+} as const;
 export type OpCode = (typeof Op)[keyof typeof Op];
+
+// Protocol limits from T0b recon: 64 blobs/tx, 1 MiB payload. Keep body blobs well
+// under 1 MiB so head + blobs fit one transaction.
+export const MAX_BLOBS_PER_TX = 64;
+export const BODY_BLOB_BYTES = 900 * 1024;
 
 export const Compression = { NONE: 0x00, ZSTD: 0x01 } as const;
 export type CompressionCode = (typeof Compression)[keyof typeof Compression];
@@ -27,7 +37,35 @@ export type Envelope =
   | PublishChunk
   | DeleteEnvelope
   | RedirectEnvelope
-  | RegisterEnvelope;
+  | RegisterEnvelope
+  | PublishV1Head
+  | CommitEnvelope;
+
+// v1 single-page publish head. The body is the transaction's blobs (all of them,
+// in order), concatenated, decompressed, and verified against contentHash.
+export interface PublishV1Head {
+  op: typeof Op.PUBLISH;
+  version: typeof VERSION_V1;
+  path: string;
+  note?: string;
+  contentHash: Uint8Array; // 32 bytes, sha256 of uncompressed body
+  compression: CompressionCode;
+  dictRef?: Uint8Array;
+  bodyBlobs: number; // how many of the tx's blobs form this body
+}
+
+// v1 batch head (op COMMIT): several ops committed in one transaction, each
+// publish pointing at a [blobStart, blobStart+blobCount) range of the tx's blobs.
+export type CommitSubOp =
+  | { op: typeof Op.PUBLISH; path: string; note?: string; contentHash: Uint8Array; compression: CompressionCode; blobStart: number; blobCount: number }
+  | { op: typeof Op.DELETE; path: string; note?: string }
+  | { op: typeof Op.REDIRECT; path: string; note?: string; target: string };
+
+export interface CommitEnvelope {
+  op: typeof Op.COMMIT;
+  version: typeof VERSION_V1;
+  ops: CommitSubOp[];
+}
 
 // Directory registration. The registrant account is NOT carried here — it is
 // taken from the ledger's owner call in the same transaction (unspoofable). The

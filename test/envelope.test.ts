@@ -41,7 +41,7 @@ describe('PUBLISH chunking', () => {
     expect(chunks.length).toBe(1);
     const head = decode(chunks[0]!);
     expect(head.op).toBe(Op.PUBLISH);
-    if (head.op === Op.PUBLISH) {
+    if (head.op === Op.PUBLISH && 'chunkIndex' in head) {
       expect(head.chunkIndex).toBe(0);
       expect(head.chunkCount).toBe(1);
       expect(head.path).toBe('/x');
@@ -58,7 +58,7 @@ describe('PUBLISH chunking', () => {
     expect(chunks.length).toBe(4);
     for (const c of chunks) expect(c.length).toBeLessThanOrEqual(MAX_MESSAGE_BYTES);
     const body = decode(chunks[1]!);
-    if (body.op === Op.PUBLISH) {
+    if (body.op === Op.PUBLISH && 'chunkIndex' in body) {
       expect(body.chunkIndex).toBe(1);
       expect(body.chunkCount).toBeUndefined();
       expect(body.contentHash).toBeUndefined();

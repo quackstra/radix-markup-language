@@ -1,8 +1,9 @@
 // Pure, isomorphic envelope codec. No hashing or compression here — those are
 // injected (see resolver) or done by the CLI. All integers little-endian.
 import {
-  MAGIC, VERSION, Op, Compression, MAX_NOTE_BYTES, CHUNK_PAYLOAD_BYTES, MAX_MESSAGE_BYTES,
-  type Envelope, type PublishChunk, type CompressionCode,
+  MAGIC, VERSION, VERSION_V1, Op, Compression, MAX_NOTE_BYTES, CHUNK_PAYLOAD_BYTES,
+  MAX_MESSAGE_BYTES, BODY_BLOB_BYTES,
+  type Envelope, type PublishChunk, type CompressionCode, type CommitSubOp,
 } from './types.js';
 
 const te = new TextEncoder();
@@ -48,6 +49,15 @@ class Reader {
 
 function writeHeader(w: Writer, op: number) {
   w.bytes(MAGIC).u8(VERSION).u8(op);
+}
+
+function writeHeaderV1(w: Writer, op: number) {
+  w.bytes(MAGIC).u8(VERSION_V1).u8(op);
+}
+
+function checkCompression(c: number): CompressionCode {
+  if (c !== Compression.NONE && c !== Compression.ZSTD) throw new Error(`unknown compression ${c}`);
+  return c as CompressionCode;
 }
 
 export function encodeDelete(path: string, note = ''): Uint8Array {
@@ -119,11 +129,66 @@ export function encodePublishChunks(meta: PublishMeta, stream: Uint8Array): Uint
   return out;
 }
 
+// ---- v1: head in message, body in transaction blobs ----
+
+export interface PublishV1Meta {
+  path: string;
+  note?: string;
+  contentHash: Uint8Array; // 32 bytes
+  compression: CompressionCode;
+  dictRef?: Uint8Array;
+  bodyBlobs: number; // how many tx blobs form the body
+}
+
+export function encodePublishV1Head(meta: PublishV1Meta): Uint8Array {
+  if (meta.contentHash.length !== 32) throw new Error('contentHash must be 32 bytes');
+  const w = new Writer();
+  writeHeaderV1(w, Op.PUBLISH);
+  w.str(normalizePath(meta.path))
+    .str(clampNote(meta.note ?? ''))
+    .bytes(meta.contentHash)
+    .u8(meta.compression)
+    .lenPrefixed(meta.dictRef ?? new Uint8Array(0))
+    .u8(meta.bodyBlobs);
+  return sized(w.done());
+}
+
+// Split a (compressed) body stream into blob-sized pieces for one transaction.
+export function splitBody(stream: Uint8Array, maxBlobBytes = BODY_BLOB_BYTES): Uint8Array[] {
+  if (stream.length === 0) return [new Uint8Array(0)];
+  const out: Uint8Array[] = [];
+  for (let i = 0; i < stream.length; i += maxBlobBytes) {
+    out.push(stream.subarray(i, Math.min(i + maxBlobBytes, stream.length)));
+  }
+  return out;
+}
+
+// Batch COMMIT head: several ops in one transaction; publish ops point at a blob range.
+export function encodeCommit(ops: CommitSubOp[]): Uint8Array {
+  const w = new Writer();
+  writeHeaderV1(w, Op.COMMIT);
+  w.u16(ops.length);
+  for (const op of ops) {
+    w.u8(op.op);
+    if (op.op === Op.PUBLISH) {
+      if (op.contentHash.length !== 32) throw new Error('contentHash must be 32 bytes');
+      w.str(normalizePath(op.path)).str(clampNote(op.note ?? ''))
+        .bytes(op.contentHash).u8(op.compression).u8(op.blobStart).u8(op.blobCount);
+    } else if (op.op === Op.DELETE) {
+      w.str(normalizePath(op.path)).str(clampNote(op.note ?? ''));
+    } else {
+      w.str(normalizePath(op.path)).str(clampNote(op.note ?? '')).str(normalizePath(op.target));
+    }
+  }
+  return sized(w.done()); // callers with big carts must fall back to batch-in-blob
+}
+
 export function decode(bytes: Uint8Array): Envelope {
   const r = new Reader(bytes);
   const m0 = r.u8(), m1 = r.u8();
   if (m0 !== MAGIC[0] || m1 !== MAGIC[1]) throw new Error('bad magic');
   const version = r.u8();
+  if (version === VERSION_V1) return decodeV1(r);
   if (version !== VERSION) throw new Error(`unsupported version ${version}`);
   const op = r.u8();
   switch (op) {
@@ -167,6 +232,44 @@ export function decode(bytes: Uint8Array): Envelope {
     default:
       throw new Error(`unknown op ${op}`);
   }
+}
+
+function decodeV1(r: Reader): Envelope {
+  const op = r.u8();
+  if (op === Op.PUBLISH) {
+    const path = normalizePath(r.str());
+    const note = r.str();
+    const contentHash = r.take(32).slice();
+    const compression = checkCompression(r.u8());
+    const dictRef = r.lenPrefixed().slice();
+    const bodyBlobs = r.u8();
+    return { op: Op.PUBLISH, version: VERSION_V1, path, note: note || undefined, contentHash, compression, dictRef, bodyBlobs };
+  }
+  if (op === Op.COMMIT) {
+    const count = r.u16();
+    const ops: CommitSubOp[] = [];
+    for (let i = 0; i < count; i++) {
+      const t = r.u8();
+      const path = normalizePath(r.str());
+      const note = r.str() || undefined;
+      if (t === Op.PUBLISH) {
+        const contentHash = r.take(32).slice();
+        const compression = checkCompression(r.u8());
+        const blobStart = r.u8();
+        const blobCount = r.u8();
+        ops.push({ op: Op.PUBLISH, path, note, contentHash, compression, blobStart, blobCount });
+      } else if (t === Op.DELETE) {
+        ops.push({ op: Op.DELETE, path, note });
+      } else if (t === Op.REDIRECT) {
+        const target = normalizePath(r.str());
+        ops.push({ op: Op.REDIRECT, path, note, target });
+      } else {
+        throw new Error(`unknown commit sub-op ${t}`);
+      }
+    }
+    return { op: Op.COMMIT, version: VERSION_V1, ops };
+  }
+  throw new Error(`unknown v1 op ${op}`);
 }
 
 function clampNote(note: string): string {

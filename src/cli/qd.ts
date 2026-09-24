@@ -4,11 +4,12 @@
 import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { encodePublishChunks, encodeDelete, encodeRedirect, normalizePath } from '../core/envelope.js';
-import { Compression } from '../core/types.js';
+import { encodePublishChunks, encodePublishV1Head, splitBody, encodeCommit, encodeDelete, encodeRedirect, normalizePath } from '../core/envelope.js';
+import { Compression, Op, type CommitSubOp } from '../core/types.js';
 import { resolveSite } from '../core/resolver.js';
 import { zstdCompress, sha256Sync, nodeCrypto } from '../node/env.js';
-import { loadSiteKey, siteAddress, submitMessage, submitRegister, fetchSiteRecords, fetchRegistryRecords, estimateChunkFee } from './gateway.js';
+import { loadSiteKey, siteAddress, submitMessage, submitBlobTx, submitRegister, fetchSiteRecords, fetchRegistryRecords, estimateChunkFee } from './gateway.js';
+import { readFileSync as readFile } from 'node:fs';
 import { encodeRegister } from '../core/envelope.js';
 import { resolveRegistry } from '../core/registry.js';
 
@@ -24,9 +25,11 @@ async function main() {
     case 'history': return history(rest);
     case 'register': return register(rest);
     case 'dir': return dir();
+    case 'commit': return commit(rest);
     default:
       console.log(`qd <command>
-  publish <file.md> --path /about [--note "…"] [--dry-run]
+  publish <file.md> --path /about [--note "…"] [--carrier blob|msg] [--dry-run]
+  commit <cart.json> [--dry-run]   publish a batch of ops in ONE transaction
   delete --path /about [--note "…"]
   redirect --from /old --to /new [--note "…"]
   ls
@@ -40,7 +43,7 @@ async function main() {
 async function publish(argv: string[]) {
   const { values, positionals } = parseArgs({
     args: argv, allowPositionals: true,
-    options: { path: { type: 'string' }, note: { type: 'string' }, 'dry-run': { type: 'boolean' } },
+    options: { path: { type: 'string' }, note: { type: 'string' }, 'dry-run': { type: 'boolean' }, carrier: { type: 'string' } },
   });
   const file = positionals[0];
   if (!file) fail('publish needs a markdown file');
@@ -49,30 +52,40 @@ async function publish(argv: string[]) {
   const zc = zstdCompress(raw);
   const useZstd = zc.length < raw.length;
   const stream = useZstd ? zc : raw;
-  const snapshotId = new Uint8Array(randomBytes(16));
-  const chunks = encodePublishChunks(
-    { path: values.path, note: values.note, snapshotId, contentHash: sha256Sync(raw), compression: useZstd ? Compression.ZSTD : Compression.NONE },
-    stream,
-  );
-  const estFee = chunks.reduce((s, c) => s + estimateChunkFee(c.length), 0);
-  console.log(`path         : ${normalizePath(values.path)}`);
-  console.log(`raw          : ${raw.length} B`);
-  console.log(`stream       : ${stream.length} B (${useZstd ? 'zstd' : 'stored'})`);
-  console.log(`snapshot     : ${Buffer.from(snapshotId).toString('hex')}`);
-  console.log(`chunks       : ${chunks.length} (1 tx each)`);
-  console.log(`est. fee     : ~${estFee.toFixed(3)} XRD`);
-  if (values['dry-run']) { console.log('dry-run: not submitted.'); return; }
+  const compression = useZstd ? Compression.ZSTD : Compression.NONE;
 
+  if (values.carrier === 'msg') {
+    // v0 chunked-message carrier.
+    const snapshotId = new Uint8Array(randomBytes(16));
+    const chunks = encodePublishChunks({ path: values.path, note: values.note, snapshotId, contentHash: sha256Sync(raw), compression }, stream);
+    const estFee = chunks.reduce((s, c) => s + estimateChunkFee(c.length), 0);
+    console.log(`carrier      : message (v0)`);
+    console.log(`path         : ${normalizePath(values.path)}`);
+    console.log(`raw / stream : ${raw.length} / ${stream.length} B (${useZstd ? 'zstd' : 'stored'})`);
+    console.log(`chunks       : ${chunks.length} (1 tx each)  est. fee ~${estFee.toFixed(3)} XRD`);
+    if (values['dry-run']) { console.log('dry-run: not submitted.'); return; }
+    const priv = loadSiteKey();
+    const account = await siteAddress(priv);
+    for (let i = 0; i < chunks.length; i++) console.log(`  chunk ${i} -> ${await submitMessage(priv, account, chunks[i]!)}`);
+    console.log(`done: ${chunks.length} tx committed.`);
+    return;
+  }
+
+  // v1 blob carrier (default): one transaction, head message + body blobs.
+  const blobs = splitBody(stream);
+  const head = encodePublishV1Head({ path: values.path, note: values.note, contentHash: sha256Sync(raw), compression, bodyBlobs: blobs.length });
+  const totalBytes = head.length + stream.length;
+  const estFee = estimateChunkFee(totalBytes);
+  console.log(`carrier      : blob (v1)`);
+  console.log(`path         : ${normalizePath(values.path)}`);
+  console.log(`raw / stream : ${raw.length} / ${stream.length} B (${useZstd ? 'zstd' : 'stored'})`);
+  console.log(`head / blobs : ${head.length} B / ${blobs.length} blob(s)`);
+  console.log(`transactions : 1  est. fee ~${estFee.toFixed(3)} XRD`);
+  if (values['dry-run']) { console.log('dry-run: not submitted.'); return; }
   const priv = loadSiteKey();
   const account = await siteAddress(priv);
-  console.log(`site         : ${account}`);
-  const txIds: string[] = [];
-  for (let i = 0; i < chunks.length; i++) {
-    const id = await submitMessage(priv, account, chunks[i]!);
-    txIds.push(id);
-    console.log(`  chunk ${i}/${chunks.length - 1} -> ${id}`);
-  }
-  console.log(`done: ${txIds.length} tx committed.`);
+  const id = await submitBlobTx(priv, account, head, blobs);
+  console.log(`done: 1 tx committed -> ${id}`);
 }
 
 async function del(argv: string[]) {
@@ -108,7 +121,10 @@ async function ls() {
   if (!paths.length) { console.log('(no pages)'); return; }
   for (const path of paths) {
     const { state } = pages.get(path)!;
-    if (state.status === 'published') console.log(`  ${path}  [published] snapshot ${state.op.snapshotId.slice(0, 8)}… ${state.op.chunkCount} chunk(s)`);
+    if (state.status === 'published') {
+      const carrier = state.op.body ? `blob (v1, ${state.op.body.blobCount} blob${state.op.body.blobCount > 1 ? 's' : ''})` : `msg (v0, ${state.op.chunkCount} chunk${state.op.chunkCount! > 1 ? 's' : ''})`;
+      console.log(`  ${path}  [published] ${carrier}`);
+    }
     else if (state.status === 'deleted') console.log(`  ${path}  [deleted]${state.note ? ' — ' + state.note : ''}`);
     else if (state.status === 'redirected') console.log(`  ${path}  [redirect] -> ${state.target}${state.note ? ' — ' + state.note : ''}`);
     else console.log(`  ${path}  [nonexistent]`);
@@ -126,7 +142,8 @@ async function history(argv: string[]) {
   for (const op of page.history) {
     if (op.kind === 'publish') {
       const tag = op.resolvable ? 'ok' : `EXCLUDED (${op.reason})`;
-      console.log(`  v${op.stateVersion}  publish  snapshot ${op.snapshotId.slice(0, 8)}…  ${op.presentChunks}/${op.chunkCount} chunks  ${tag}${op.note ? '  — ' + op.note : ''}`);
+      const carrier = op.body ? `blob×${op.body.blobCount}` : `msg ${op.presentChunks}/${op.chunkCount}`;
+      console.log(`  v${op.stateVersion}#${op.opIndex}  publish  ${carrier}  ${tag}${op.note ? '  — ' + op.note : ''}`);
     } else if (op.kind === 'delete') {
       console.log(`  v${op.stateVersion}  delete${op.note ? '  — ' + op.note : ''}`);
     } else {
@@ -148,6 +165,39 @@ async function dir() {
   if (!entries.length) { console.log('(directory empty)'); return; }
   console.log(`${entries.length} registered site(s):`);
   for (const e of entries) console.log(`  ${e.title ? e.title + '  ' : ''}${e.account}`);
+}
+
+// Cart file: [{type:'publish',path,file,note?}|{type:'delete',path,note?}|{type:'redirect',from,to,note?}]
+async function commit(argv: string[]) {
+  const { values, positionals } = parseArgs({ args: argv, allowPositionals: true, options: { 'dry-run': { type: 'boolean' } } });
+  const cartFile = positionals[0];
+  if (!cartFile) fail('commit needs a cart.json');
+  const cart = JSON.parse(readFile(cartFile, 'utf8')) as any[];
+  const subOps: CommitSubOp[] = [];
+  const blobs: Uint8Array[] = [];
+  for (const a of cart) {
+    if (a.type === 'publish') {
+      const raw = new Uint8Array(readFileSync(a.file));
+      const zc = zstdCompress(raw);
+      const useZstd = zc.length < raw.length;
+      const parts = splitBody(useZstd ? zc : raw);
+      subOps.push({ op: Op.PUBLISH, path: a.path, note: a.note, contentHash: sha256Sync(raw), compression: useZstd ? Compression.ZSTD : Compression.NONE, blobStart: blobs.length, blobCount: parts.length });
+      blobs.push(...parts);
+    } else if (a.type === 'delete') {
+      subOps.push({ op: Op.DELETE, path: a.path, note: a.note });
+    } else if (a.type === 'redirect') {
+      subOps.push({ op: Op.REDIRECT, path: a.from, note: a.note, target: a.to });
+    } else fail(`unknown cart action: ${a.type}`);
+  }
+  const head = encodeCommit(subOps);
+  const totalBytes = head.length + blobs.reduce((s, b) => s + b.length, 0);
+  console.log(`ops          : ${subOps.length}  (publishes carry ${blobs.length} blob(s))`);
+  console.log(`head         : ${head.length} B / 2048  ·  transactions: 1  ·  est. fee ~${estimateChunkFee(totalBytes).toFixed(3)} XRD`);
+  if (values['dry-run']) { console.log('dry-run: not submitted.'); return; }
+  const priv = loadSiteKey();
+  const account = await siteAddress(priv);
+  const id = await submitBlobTx(priv, account, head, blobs);
+  console.log(`committed ${subOps.length} ops in 1 tx -> ${id}`);
 }
 
 main().catch((e) => fail(e.message));

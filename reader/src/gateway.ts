@@ -52,6 +52,14 @@ export async function fetchSiteRecords(account: string): Promise<SiteRecord[]> {
   return records;
 }
 
+// Fetch a transaction's raw payload (for v1 blob bodies), on demand per viewed page.
+export async function fetchRawPayload(txId: string): Promise<Uint8Array> {
+  const d = await gw('/transaction/committed-details', { intent_hash: txId, opt_ins: { raw_hex: true } });
+  const rawHex = d.transaction?.raw_hex;
+  if (typeof rawHex !== 'string') throw new Error('no raw_hex for ' + txId);
+  return hexToBytes(rawHex);
+}
+
 // Directory registrations from the hub's stream (registrant = owner call in the tx).
 export async function fetchRegistryRecords(): Promise<RegistryRecord[]> {
   const items: any[] = [];
