@@ -1,0 +1,17 @@
+{
+  "name": "@quackdown/core",
+  "version": "1.0.0",
+  "description": "Quackdown protocol core — envelope codec (v0 chunked messages + v1 blob carrier), resolver, directory registry, minimal SBOR blob extractor, and read-side Radix Gateway helpers. Isomorphic (Node + browser), zero runtime dependencies.",
+  "type": "module",
+  "license": "MIT",
+  "homepage": "https://github.com/quackstra/radix-markup-language",
+  "repository": { "type": "git", "url": "https://github.com/quackstra/radix-markup-language.git" },
+  "keywords": ["radix", "quackdown", "on-ledger", "dlt", "markdown"],
+  "sideEffects": false,
+  "engines": { "node": ">=18" },
+  "exports": {
+    ".": { "types": "./dist/core/index.d.ts", "default": "./dist/core/index.js" },
+    "./node": { "types": "./dist/node/env.d.ts", "default": "./dist/node/env.js" }
+  },
+  "files": ["dist", "README.md", "CHANGELOG.md", "LICENSE"]
+}

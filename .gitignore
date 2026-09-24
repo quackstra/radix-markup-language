@@ -1,5 +1,7 @@
 node_modules/
 dist/
+package/dist/
+package/*.tgz
 *.log
 .DS_Store
 .account.json

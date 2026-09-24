@@ -4,3 +4,4 @@ export * from './resolver.js';
 export * from './registry.js';
 export * from './config.js';
 export * from './sbor.js';
+export * from './gateway.js';
