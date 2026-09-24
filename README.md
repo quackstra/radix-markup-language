@@ -20,7 +20,9 @@ them. No backend, no database, no hosting beyond the static reader.
 - ✅ **Acceptance** — full brief acceptance verified live on Stokenet
   (`scripts/acceptance.ts`): 4 pages incl. a 3-chunk page, a delete, a redirect, and a
   forged cross-account message that is correctly excluded.
-- ⏸️ **T2 — Reader (static SPA)** — not started (next).
+- ✅ **T2 — Reader (static SPA)** — Vite + TS, mobile-first, 4 viewing modes,
+  markdown with raw HTML disabled, CSP locked to the Stokenet Gateway. Reuses the
+  shared core with browser deps (Web Crypto + `fzstd`); data path verified live.
 
 ## Layout
 
@@ -30,9 +32,22 @@ recon/                             T0 recon harness (Node, ESM) + REPORT.md
 src/core/                          shared codec + resolver (isomorphic)
 src/node/env.ts                    Node crypto/zstd adapters (injected into the core)
 src/cli/                           qd publisher CLI + Gateway/RET client
+reader/                            T2 static reader SPA (Vite + TS); browser deps
 test/                              vitest suite (T3 + codec)
 scripts/acceptance.ts              live Stokenet end-to-end acceptance
 ```
+
+## Reader
+
+```
+npm run reader:dev        # dev server
+npm run reader:build      # -> reader/dist (static, deploy anywhere)
+```
+
+Routing is `#/<site-address>/<path>`. Viewing modes (stored per viewer): Clean,
+Deletes, Redirects (don't follow), Full history (open any past snapshot). The reader
+talks only to the Stokenet Gateway (enforced by CSP `connect-src`) and never trusts
+anything inside an envelope — site membership is the owner-call filter + `CommittedSuccess`.
 
 ## Use the CLI
 

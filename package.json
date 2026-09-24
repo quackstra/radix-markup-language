@@ -10,15 +10,22 @@
   "scripts": {
     "qd": "tsx src/cli/qd.ts",
     "test": "vitest run",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "reader:dev": "vite --config reader/vite.config.ts reader",
+    "reader:build": "vite --config reader/vite.config.ts build reader",
+    "reader:preview": "vite --config reader/vite.config.ts preview reader"
   },
   "dependencies": {
     "@radixdlt/radix-engine-toolkit": "1.0.6",
-    "@radixdlt/babylon-gateway-api-sdk": "1.10.1"
+    "@radixdlt/babylon-gateway-api-sdk": "1.10.1",
+    "fzstd": "^0.1.1",
+    "markdown-it": "^14.1.0"
   },
   "devDependencies": {
+    "@types/markdown-it": "^14.1.2",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
+    "vite": "^6.0.7",
     "vitest": "^2.1.8"
   }
 }
