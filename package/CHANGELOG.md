@@ -2,6 +2,12 @@
 
 Semver. Any change to the wire format or resolver output is a **major** version.
 
+## 1.1.0
+
+- Add the core social schema (S0): `parseFrontMatter`, `parsePage`, `serializePage`,
+  `parseRef`/`formatRef`, `asProfile`/`asPost`/`asReply`/`asFollows`/`asThemeRef`,
+  `extractBlocks`, `ObjectType`. Additive — no wire-format or resolver change.
+
 ## 1.0.0
 
 Initial published core.
