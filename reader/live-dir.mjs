@@ -1,0 +1,13 @@
+import { chromium } from 'playwright';
+const browser = await chromium.launch();
+const page = await browser.newContext({ viewport: { width: 390, height: 844 }, deviceScaleFactor: 2 }).then((c) => c.newPage());
+const errors = [];
+page.on('console', (m) => m.type() === 'error' && errors.push(m.text()));
+await page.goto('https://quackstra.github.io/radix-markup-language/', { waitUntil: 'load' });
+await page.waitForSelector('.qd-dir-list', { timeout: 60000 });
+const titles = await page.locator('.qd-dir-title').allTextContents();
+await page.screenshot({ path: new URL('./screenshots/11-LIVE-directory.png', import.meta.url).pathname, fullPage: true });
+console.log('LIVE directory titles:', titles, '| console errors:', errors.length ? errors : 'none');
+await browser.close();
+console.log(titles.length >= 2 ? 'LIVE DIRECTORY OK ✅' : 'LIVE DIRECTORY FAIL ❌');
+if (titles.length < 2) process.exit(1);
