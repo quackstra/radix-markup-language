@@ -1,0 +1,11 @@
+{
+  "name": "quackdown-recon",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "T0 recon harness for Quackdown (radix-markup-language) — Stokenet only",
+  "dependencies": {
+    "@radixdlt/radix-engine-toolkit": "1.0.6",
+    "@radixdlt/babylon-gateway-api-sdk": "1.10.1"
+  }
+}
