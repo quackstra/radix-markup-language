@@ -1,0 +1,24 @@
+{
+  "name": "quackdown",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Quackdown — a website that lives entirely on the Radix ledger. Shared core (codec + resolver) + qd publisher CLI. Stokenet only.",
+  "bin": {
+    "qd": "src/cli/qd.ts"
+  },
+  "scripts": {
+    "qd": "tsx src/cli/qd.ts",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@radixdlt/radix-engine-toolkit": "1.0.6",
+    "@radixdlt/babylon-gateway-api-sdk": "1.10.1"
+  },
+  "devDependencies": {
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  }
+}

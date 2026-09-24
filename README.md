@@ -11,16 +11,38 @@ them. No backend, no database, no hosting beyond the static reader.
 
 - ✅ **T0 — Recon** complete. See [`recon/REPORT.md`](recon/REPORT.md).
   Headline: the binding size limit is a **2048-byte transaction-message cap**, not the
-  1 MiB transaction size — this changes the chunking spec (proposal in the report).
-- ⏸️ **T1 — Publisher CLI (`qd`)** — blocked on approval of the recon's proposed spec changes.
-- ⏸️ **T2 — Reader (static SPA)** — not started.
-- ⏸️ **T3 — Resolver tests** — not started.
+  1 MiB transaction size. Approved spec changes: uniform **1500-byte** chunk payload,
+  head/body chunk split, reader reads `message.content.value_hex`, resolver auth =
+  owner-call filter + `CommittedSuccess`, publisher prints est. fee + `--dry-run`.
+- ✅ **Shared core** (`src/core`) — isomorphic envelope codec + resolver ("one core, two faces").
+- ✅ **T1 — Publisher CLI (`qd`)** — publish / delete / redirect / ls / history, `--dry-run`.
+- ✅ **T3 — Resolver tests** — 24 tests, all passing (`npm test`).
+- ✅ **Acceptance** — full brief acceptance verified live on Stokenet
+  (`scripts/acceptance.ts`): 4 pages incl. a 3-chunk page, a delete, a redirect, and a
+  forged cross-account message that is correctly excluded.
+- ⏸️ **T2 — Reader (static SPA)** — not started (next).
 
 ## Layout
 
 ```
 docs/quackdown-stokenet-brief.md   the v0 brief (source of truth)
 recon/                             T0 recon harness (Node, ESM) + REPORT.md
+src/core/                          shared codec + resolver (isomorphic)
+src/node/env.ts                    Node crypto/zstd adapters (injected into the core)
+src/cli/                           qd publisher CLI + Gateway/RET client
+test/                              vitest suite (T3 + codec)
+scripts/acceptance.ts              live Stokenet end-to-end acceptance
+```
+
+## Use the CLI
+
+```
+export QUACKDOWN_SITE_KEY=<32-byte ed25519 hex>   # never commit or log this
+npm run qd -- publish page.md --path /about --note "first" [--dry-run]
+npm run qd -- delete   --path /temp
+npm run qd -- redirect --from /old --to /about
+npm run qd -- ls
+npm run qd -- history  --path /about
 ```
 
 ## Recon harness
