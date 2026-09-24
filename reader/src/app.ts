@@ -98,6 +98,26 @@ function lastPublished(page: ResolvedPage): PublishOp | undefined {
   return [...page.history].reverse().find((o): o is PublishOp => o.kind === 'publish' && o.resolvable);
 }
 
+// A nav strip of the site's published pages (root first, then alphabetical).
+function renderNav(site: string, pages: Map<string, ResolvedPage>, currentPath: string): HTMLElement | null {
+  const paths = [...pages.entries()]
+    .filter(([, p]) => p.state.status === 'published')
+    .map(([path]) => path)
+    .sort((a, b) => (a === '/' ? -1 : b === '/' ? 1 : a.localeCompare(b)));
+  if (paths.length < 2) return null; // nothing to navigate to
+  const nav = el('nav', { class: 'qd-nav' }, el('div', { class: 'qd-nav-label' }, 'Pages'));
+  const list = el('div', { class: 'qd-nav-list' });
+  for (const path of paths) {
+    const a = el('a', {
+      href: `#/${encodeURIComponent(site)}${path}`,
+      class: 'qd-nav-item' + (path === currentPath ? ' active' : ''),
+    }, path === '/' ? 'home' : path);
+    list.append(a);
+  }
+  nav.append(list);
+  return nav;
+}
+
 function renderContent(main: HTMLElement, site: string, markdown: string) {
   const article = el('article', { class: 'qd-content' });
   article.innerHTML = makeRenderer(site)(markdown); // html:false -> content cannot inject scripts
@@ -120,6 +140,9 @@ async function view(site: string, path: string) {
   const { header, main } = chrome(site, path);
   const mode = getMode();
   const page = pages.get(path);
+
+  const nav = renderNav(site, pages, path);
+  if (nav) main.append(nav);
 
   if (mode === 'history') {
     renderHistory(main, site, path, page);

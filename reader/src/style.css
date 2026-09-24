@@ -34,6 +34,15 @@ body {
 .qd-mode.active { background: var(--acc); color: #1a1400; border-color: var(--acc); font-weight: 700; }
 
 .qd-main { padding-top: 16px; }
+
+/* Page navigation */
+.qd-nav { margin-bottom: 18px; }
+.qd-nav-label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--muted); margin-bottom: 8px; }
+.qd-nav-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.qd-nav-item { display: inline-block; min-height: 40px; padding: 8px 14px; border-radius: 999px;
+  background: var(--card); border: 1px solid var(--line); color: var(--fg); text-decoration: none;
+  font-family: ui-monospace, monospace; font-size: 13px; line-height: 22px; }
+.qd-nav-item.active { background: var(--acc); color: #1a1400; border-color: var(--acc); font-weight: 700; }
 .qd-loading { padding: 24px 0; color: var(--muted); }
 
 /* Notices */
