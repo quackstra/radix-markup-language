@@ -7,4 +7,5 @@ package/*.tgz
 .account.json
 .hub-key.json
 .content-keys.json
+.social-keys.json
 .env

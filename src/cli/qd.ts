@@ -177,7 +177,7 @@ async function commit(argv: string[]) {
   const blobs: Uint8Array[] = [];
   for (const a of cart) {
     if (a.type === 'publish') {
-      const raw = new Uint8Array(readFileSync(a.file));
+      const raw = a.content != null ? new TextEncoder().encode(a.content) : new Uint8Array(readFileSync(a.file));
       const zc = zstdCompress(raw);
       const useZstd = zc.length < raw.length;
       const parts = splitBody(useZstd ? zc : raw);
