@@ -6,3 +6,4 @@ export * from './config.js';
 export * from './sbor.js';
 export * from './gateway.js';
 export * from './schema.js';
+export * from './commit.js';

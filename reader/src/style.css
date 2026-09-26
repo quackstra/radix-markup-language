@@ -81,3 +81,5 @@ body {
 .qd-op-redirect { border-left: 4px solid var(--acc); }
 .qd-snap-btn { margin-top: 10px; min-height: 40px; padding: 8px 14px; border-radius: 8px;
   background: transparent; color: var(--link); border: 1px solid var(--line); }
+
+.qd-page-title { font-size: 1.7rem; letter-spacing: -0.02em; margin: 8px 0 4px; }

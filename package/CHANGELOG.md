@@ -2,6 +2,19 @@
 
 Semver. Any change to the wire format or resolver output is a **major** version.
 
+## 1.2.0
+
+- `buildCommit` helper: dedupes identical blobs in a COMMIT (fixes `DuplicateBlob`
+  rejection for identical / empty-body pages); ops with the same body share a range.
+- Batch refs: `rdx:tx:<hash>#<opIndex>` addresses one op inside a COMMIT (bare hash =
+  op 0); `parseRef`/`formatRef`/`refForOp` updated; `asReply` exposes `opIndex`.
+- Strict front-matter JSON (deterministic for the indexer): rejects duplicate keys,
+  non-finite/unsafe-integer numbers, and invalid UTF-8 — violations degrade the page
+  to `type: page`. Malformed known-typed objects (bad `reply.to`, etc.) also degrade.
+- Typed theme tokens: `validateThemeTokens` + `asTheme` accept only colors, lengths,
+  and allowlisted fonts (no `url()`/raw CSS).
+- `asFollows` drops addresses that don't match the site's network prefix.
+
 ## 1.1.0
 
 - Add the core social schema (S0): `parseFrontMatter`, `parsePage`, `serializePage`,

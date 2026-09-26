@@ -5,6 +5,7 @@ import { resolveSite, render, loadBody, type ResolvedPage, type PublishOp } from
 import { resolveRegistry, type RegistryEntry } from '../../src/core/registry.js';
 import { extractBlobs } from '../../src/core/sbor.js';
 import { normalizePath } from '../../src/core/envelope.js';
+import { parsePage, asPost, asProfile } from '../../src/core/schema.js';
 
 type Mode = 'clean' | 'deletes' | 'redirects' | 'history';
 const MODES: { id: Mode; label: string }[] = [
@@ -119,9 +120,14 @@ function renderNav(site: string, pages: Map<string, ResolvedPage>, currentPath: 
   return nav;
 }
 
-function renderContent(main: HTMLElement, site: string, markdown: string) {
+// Schema-aware: strip the front-matter block, use title/name as the heading, and
+// render only the body. Unknown types just render as a plain page (their body).
+function renderContent(main: HTMLElement, site: string, rawContent: string) {
+  const p = parsePage(rawContent);
+  const heading = asPost(p)?.title ?? asProfile(p)?.name;
+  if (heading) main.append(el('h1', { class: 'qd-page-title' }, heading));
   const article = el('article', { class: 'qd-content' });
-  article.innerHTML = makeRenderer(site)(markdown); // html:false -> content cannot inject scripts
+  article.innerHTML = makeRenderer(site)(p.body); // html:false -> content cannot inject scripts
   main.append(article);
 }
 

@@ -4,8 +4,9 @@
 import { readFileSync } from 'node:fs';
 import { randomBytes } from 'node:crypto';
 import { parseArgs } from 'node:util';
-import { encodePublishChunks, encodePublishV1Head, splitBody, encodeCommit, encodeDelete, encodeRedirect, normalizePath } from '../core/envelope.js';
-import { Compression, Op, type CommitSubOp } from '../core/types.js';
+import { encodePublishChunks, encodePublishV1Head, splitBody, encodeDelete, encodeRedirect, normalizePath } from '../core/envelope.js';
+import { Compression, Op } from '../core/types.js';
+import { buildCommit, type CommitBuildItem } from '../core/commit.js';
 import { resolveSite } from '../core/resolver.js';
 import { zstdCompress, sha256Sync, nodeCrypto } from '../node/env.js';
 import { loadSiteKey, siteAddress, submitMessage, submitBlobTx, submitRegister, fetchSiteRecords, fetchRegistryRecords, estimateChunkFee } from './gateway.js';
@@ -173,25 +174,20 @@ async function commit(argv: string[]) {
   const cartFile = positionals[0];
   if (!cartFile) fail('commit needs a cart.json');
   const cart = JSON.parse(readFile(cartFile, 'utf8')) as any[];
-  const subOps: CommitSubOp[] = [];
-  const blobs: Uint8Array[] = [];
-  for (const a of cart) {
+  const items: CommitBuildItem[] = cart.map((a) => {
     if (a.type === 'publish') {
       const raw = a.content != null ? new TextEncoder().encode(a.content) : new Uint8Array(readFileSync(a.file));
       const zc = zstdCompress(raw);
       const useZstd = zc.length < raw.length;
-      const parts = splitBody(useZstd ? zc : raw);
-      subOps.push({ op: Op.PUBLISH, path: a.path, note: a.note, contentHash: sha256Sync(raw), compression: useZstd ? Compression.ZSTD : Compression.NONE, blobStart: blobs.length, blobCount: parts.length });
-      blobs.push(...parts);
-    } else if (a.type === 'delete') {
-      subOps.push({ op: Op.DELETE, path: a.path, note: a.note });
-    } else if (a.type === 'redirect') {
-      subOps.push({ op: Op.REDIRECT, path: a.from, note: a.note, target: a.to });
-    } else fail(`unknown cart action: ${a.type}`);
-  }
-  const head = encodeCommit(subOps);
+      return { op: Op.PUBLISH, path: a.path, note: a.note, bodyBytes: useZstd ? zc : raw, contentHash: sha256Sync(raw), compression: useZstd ? Compression.ZSTD : Compression.NONE };
+    }
+    if (a.type === 'delete') return { op: Op.DELETE, path: a.path, note: a.note };
+    if (a.type === 'redirect') return { op: Op.REDIRECT, path: a.from, note: a.note, target: a.to };
+    return fail(`unknown cart action: ${a.type}`);
+  });
+  const { head, blobs, subOps } = buildCommit(items);
   const totalBytes = head.length + blobs.reduce((s, b) => s + b.length, 0);
-  console.log(`ops          : ${subOps.length}  (publishes carry ${blobs.length} blob(s))`);
+  console.log(`ops          : ${subOps.length}  (publishes carry ${blobs.length} deduped blob(s))`);
   console.log(`head         : ${head.length} B / 2048  ·  transactions: 1  ·  est. fee ~${estimateChunkFee(totalBytes).toFixed(3)} XRD`);
   if (values['dry-run']) { console.log('dry-run: not submitted.'); return; }
   const priv = loadSiteKey();

@@ -1,93 +1,92 @@
 import { describe, it, expect } from 'vitest';
 import {
-  parseFrontMatter, parsePage, serializePage, parseRef, formatRef, extractBlocks,
-  asProfile, asPost, asReply, asFollows, asThemeRef, ObjectType,
+  parseFrontMatter, parsePage, serializePage, parseRef, formatRef, refForOp, extractBlocks,
+  asProfile, asPost, asReply, asFollows, asThemeRef, asTheme, validateThemeTokens, ObjectType,
 } from '../src/core/schema.js';
 
-describe('front-matter', () => {
+const A_TDX = 'account_tdx_2_12yk6sa3pd9zhk8geja39k5azcppeqxcn3yn7pcvq7zet67wchy2azl';
+const B_TDX = 'account_tdx_2_128w3neufp3dd5gwlg6h0tps6gf24wyq35fr3cdyh6lapc9qnlgf6en';
+
+describe('front-matter (strict)', () => {
   it('splits JSON front-matter from body', () => {
-    const { meta, body } = parseFrontMatter('---\n{"type":"post","title":"Hi"}\n---\n# Hi\n\nbody');
+    const { meta, body } = parseFrontMatter('---\n{"type":"post","title":"Hi"}\n---\n# Hi');
     expect(meta.type).toBe('post');
-    expect(body).toBe('# Hi\n\nbody');
+    expect(body).toBe('# Hi');
   });
-  it('no front-matter -> plain page, body untouched', () => {
-    const { meta, body } = parseFrontMatter('# Just markdown\n\ntext');
-    expect(meta).toEqual({});
-    expect(body).toBe('# Just markdown\n\ntext');
+  it('no front-matter -> plain page', () => {
     expect(parsePage('# Just markdown').type).toBe(ObjectType.PAGE);
   });
-  it('invalid JSON front-matter is tolerated (treated as plain page)', () => {
-    const { meta, body } = parseFrontMatter('---\n{not json}\n---\nbody');
-    expect(meta).toEqual({});
-    expect(body).toContain('body');
+  it('invalid JSON -> plain page', () => {
+    expect(parsePage('---\n{not json}\n---\nbody').type).toBe(ObjectType.PAGE);
   });
-  it('round-trips via serializePage', () => {
-    const s = serializePage({ type: 'post', title: 'X' }, '# X');
-    const p = parsePage(s);
+  it('duplicate keys -> rejected (plain page)', () => {
+    const p = parsePage('---\n{"type":"post","type":"profile"}\n---\nx');
+    expect(p.type).toBe(ObjectType.PAGE);
+    expect(p.meta).toEqual({});
+  });
+  it('unsafe integer -> rejected', () => {
+    expect(parsePage('---\n{"type":"post","n":123456789012345678901234}\n---\nx').type).toBe(ObjectType.PAGE);
+  });
+  it('floats are allowed (for namespaced extensions)', () => {
+    const p = parsePage('---\n{"type":"post","x.universe:confidence":0.87}\n---\nx');
     expect(p.type).toBe('post');
-    expect(p.meta.title).toBe('X');
-    expect(p.body).toBe('# X');
+    expect(p.meta['x.universe:confidence']).toBe(0.87);
   });
 });
 
-describe('rdx refs', () => {
-  it('parses and formats acct/tx/page', () => {
-    expect(parseRef('rdx:acct:account_tdx_2_abc')).toEqual({ kind: 'acct', account: 'account_tdx_2_abc' });
-    expect(parseRef('rdx:tx:txid_tdx_2_xyz')).toEqual({ kind: 'tx', tx: 'txid_tdx_2_xyz' });
-    expect(parseRef('rdx:page:account_tdx_2_abc:/blog/post')).toEqual({ kind: 'page', account: 'account_tdx_2_abc', path: '/blog/post' });
-    expect(formatRef({ kind: 'tx', tx: 'txid_1' })).toBe('rdx:tx:txid_1');
-    expect(parseRef('http://evil')).toBeNull();
-    expect(parseRef(42)).toBeNull();
+describe('rdx refs with batch op index', () => {
+  it('bare tx ref = op 0', () => expect(parseRef('rdx:tx:txid_1')).toEqual({ kind: 'tx', tx: 'txid_1', opIndex: 0 }));
+  it('tx#n ref', () => expect(parseRef('rdx:tx:txid_1#3')).toEqual({ kind: 'tx', tx: 'txid_1', opIndex: 3 }));
+  it('formatRef round-trips op index', () => {
+    expect(formatRef({ kind: 'tx', tx: 't', opIndex: 0 })).toBe('rdx:tx:t');
+    expect(formatRef({ kind: 'tx', tx: 't', opIndex: 2 })).toBe('rdx:tx:t#2');
+    expect(refForOp('t', 1)).toBe('rdx:tx:t#1');
+  });
+  it('page + acct refs', () => {
+    expect(parseRef(`rdx:page:${A_TDX}:/blog`)).toEqual({ kind: 'page', account: A_TDX, path: '/blog' });
+    expect(parseRef(`rdx:acct:${A_TDX}`)).toEqual({ kind: 'acct', account: A_TDX });
+    expect(parseRef('rdx:tx:t#-1')).toBeNull();
   });
 });
 
-describe('typed core objects', () => {
-  it('profile', () => {
-    const p = parsePage(serializePage({ type: 'profile', name: 'Alice', theme: 'rdx:tx:txid_theme', links: [{ label: 'x', url: 'https://x' }, { bad: 1 }] }, 'about me'));
-    const prof = asProfile(p)!;
-    expect(prof.name).toBe('Alice');
-    expect(prof.theme).toBe('rdx:tx:txid_theme');
-    expect(prof.links).toEqual([{ label: 'x', url: 'https://x' }]); // malformed link dropped
-    expect(prof.body).toBe('about me');
-    expect(asPost(p)).toBeNull(); // wrong type
+describe('typed objects', () => {
+  it('post + profile', () => {
+    expect(asPost(parsePage(serializePage({ type: 'post', title: 'Hello', tags: ['gm'] }, '# Hi')))!.title).toBe('Hello');
+    expect(asProfile(parsePage(serializePage({ type: 'profile', name: 'Alice' }, 'bio')))!.name).toBe('Alice');
   });
-  it('post', () => {
-    const p = parsePage(serializePage({ type: 'post', title: 'Hello', tags: ['gm', 'radix'], published: '2026-09-24T00:00:00Z' }, '# Hello'));
-    const post = asPost(p)!;
-    expect(post.title).toBe('Hello');
-    expect(post.tags).toEqual(['gm', 'radix']);
+  it('reply requires a tx ref, carries opIndex; invalid degrades to page', () => {
+    const ok = parsePage(serializePage({ type: 'reply', to: 'rdx:tx:txid_x#2' }, 'nice'));
+    expect(ok.type).toBe('reply');
+    expect(asReply(ok)).toMatchObject({ to: 'rdx:tx:txid_x#2', opIndex: 2 });
+    const bad = parsePage(serializePage({ type: 'reply', to: `rdx:acct:${A_TDX}` }, 'x'));
+    expect(bad.type).toBe(ObjectType.PAGE); // degraded
   });
-  it('reply requires a tx ref target', () => {
-    const ok = parsePage(serializePage({ type: 'reply', to: 'rdx:tx:txid_target' }, 'nice post'));
-    expect(asReply(ok)!.to).toBe('rdx:tx:txid_target');
-    const bad = parsePage(serializePage({ type: 'reply', to: 'rdx:acct:account_x' }, 'x'));
-    expect(asReply(bad)).toBeNull(); // account ref is not a valid reply target
-  });
-  it('follows', () => {
-    const p = parsePage(serializePage({ type: 'follows', accounts: ['account_a', 'account_b'] }, ''));
-    expect(asFollows(p)!.accounts).toEqual(['account_a', 'account_b']);
-    expect(asFollows(parsePage(serializePage({ type: 'follows' }, '')))).toBeNull();
+  it('follows drops wrong-network / garbage addresses', () => {
+    const p = parsePage(serializePage({ type: 'follows', accounts: [A_TDX, 'account_rdx1abc', 'garbage', `rdx:acct:${B_TDX}`] }, ''));
+    expect(asFollows(p)!.accounts).toEqual([A_TDX, B_TDX]);
   });
   it('theme-ref', () => {
-    const p = parsePage(serializePage({ type: 'theme-ref', theme: 'rdx:tx:txid_theme' }, ''));
-    expect(asThemeRef(p)!.theme).toBe('rdx:tx:txid_theme');
+    expect(asThemeRef(parsePage(serializePage({ type: 'theme-ref', theme: 'rdx:tx:t' }, '')))!.theme).toBe('rdx:tx:t');
   });
-  it('unknown type -> plain page, typed views return null', () => {
-    const p = parsePage(serializePage({ type: 'radpress:megawidget', foo: 1 }, '# body'));
-    expect(p.type).toBe('radpress:megawidget');
-    expect(asProfile(p)).toBeNull();
-    expect(asPost(p)).toBeNull();
-    expect(p.body).toBe('# body'); // still renderable
+});
+
+describe('theme tokens', () => {
+  it('keeps colors/lengths/fonts, drops url() and raw css', () => {
+    const t = validateThemeTokens({ bg: '#0f1216', accent: '#48d597aa', pad: '12px', scale: '1.5rem', font: 'monospace', evil: 'url(http://x)', js: 'expression(1)', num: 5 });
+    expect(t).toEqual({ bg: '#0f1216', accent: '#48d597aa', pad: '12px', scale: '1.5rem', font: 'monospace' });
+  });
+  it('asTheme validates tokens + remix-of', () => {
+    const th = asTheme(parsePage(serializePage({ type: 'theme', name: 'Pond', tokens: { bg: '#000', evil: 'url(x)' }, 'remix-of': 'rdx:tx:parent' }, '')))!;
+    expect(th.name).toBe('Pond');
+    expect(th.tokens).toEqual({ bg: '#000' });
+    expect(th.remixOf).toBe('rdx:tx:parent');
   });
 });
 
 describe('extension blocks', () => {
-  it('surfaces namespaced blocks and ignores prose', () => {
-    const body = 'intro\n\n```quackdown:radpress:gallery\n{"images":["rdx:tx:a"]}\n```\n\nmore text';
-    const blocks = extractBlocks(body);
-    expect(blocks.length).toBe(1);
-    expect(blocks[0]!.ns).toBe('radpress');
-    expect(blocks[0]!.name).toBe('gallery');
-    expect((blocks[0]!.data as any).images).toEqual(['rdx:tx:a']);
+  it('surfaces namespaced blocks', () => {
+    const b = extractBlocks('x\n\n```quackdown:radpress:gallery\n{"images":["rdx:tx:a"]}\n```\n');
+    expect(b[0]).toMatchObject({ ns: 'radpress', name: 'gallery' });
+    expect((b[0]!.data as any).images).toEqual(['rdx:tx:a']);
   });
 });

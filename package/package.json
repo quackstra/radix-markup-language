@@ -1,6 +1,6 @@
 {
   "name": "@quackdown/core",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "description": "Quackdown protocol core — envelope codec (v0 chunked messages + v1 blob carrier), resolver, directory registry, minimal SBOR blob extractor, and read-side Radix Gateway helpers. Isomorphic (Node + browser), zero runtime dependencies.",
   "type": "module",
   "license": "MIT",
